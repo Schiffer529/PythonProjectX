@@ -1,82 +1,66 @@
 import os
-import re
 from bs4 import BeautifulSoup
 
-# 改为你的 HTML 文件所在的文件夹路径
-dest_dir = r"C:\Users\26755\Desktop\Python3.7"  # 确保这个路径指向存放 HTML 文件的文件夹
+# 设置 HTML 文件夹路径和输出 TXT 文件路径
+source_dir = "C:/Users/26755/Desktop/Python3.7/"
+output_file = os.path.join(source_dir, "douban_extracted.txt")
 
-# 确保路径是一个有效的目录
-if not os.path.isdir(dest_dir):
-    print(f"错误：路径 {dest_dir} 不是一个有效的目录。")
-else:
-    # 遍历目录下的每个文件
-    for html_file in os.listdir(dest_dir):
-        # 仅处理 .html 文件
-        if not html_file.endswith('.html'):
-            continue  # 忽略非 HTML 文件
+# 打开输出文件用于写入
+with open(output_file, "w", encoding="utf-8") as out:
+    for file_name in os.listdir(source_dir):
+        if not file_name.endswith(".html"):
+            continue  # 跳过非 HTML 文件
 
-        print(f"\n📄 正在解析文件: {html_file}")
-        file_path = os.path.join(dest_dir, html_file)
-
+        file_path = os.path.join(source_dir, file_name)
         with open(file_path, "r", encoding="utf-8") as f:
             html = f.read()
-            soup = BeautifulSoup(html, 'lxml')
 
-            # 找到电影列表
-            movie_list = soup.find('ol', class_='grid_view').find_all('li')
+        soup = BeautifulSoup(html, "lxml")
+        movie_items = soup.select("ol.grid_view li")  # ⭐️ 获取电影项
 
-            for movie in movie_list:
-                # 电影标题
-                title = movie.find('span', class_='title').get_text(strip=True)
+        for movie in movie_items:
+            try:
+                # 获取标题
+                title_tag = movie.find("span", class_="title")
+                if not title_tag:
+                    print(f"[跳过] 未找到标题：{file_name}")
+                    continue
+                title = title_tag.get_text(strip=True)
 
                 # 评分
-                rating = movie.find('span', class_='rating_num').get_text(strip=True)
+                rating_tag = movie.find("span", class_="rating_num")
+                rating = rating_tag.get_text(strip=True) if rating_tag else ""
 
                 # 评论人数
-                comment_text = movie.find_all('span')[-1].get_text()
-                comment_match = re.search(r"(\d+)", comment_text)
-                comment_num = comment_match.group(1) if comment_match else "0"
+                star_div = movie.find("div", class_="star")
+                comment_text = star_div.find_all("span")[-1].get_text(strip=True) if star_div else ""
+                comment_num = ''.join(filter(str.isdigit, comment_text))
+
+                # 导演与主演
+                p_tag = movie.find("div", class_="bd").find("p")
+                info_text = p_tag.get_text(strip=True) if p_tag else ""
+                director, actor = "", ""
+                if "导演" in info_text:
+                    parts = info_text.split("主演:")
+                    director = parts[0].replace("导演:", "").strip()
+                    if len(parts) > 1:
+                        actor = parts[1].strip()
+
+                # 年份 / 国家 / 类型
+                lines = p_tag.get_text().split("\n") if p_tag else []
+                last_line = lines[-1].strip() if len(lines) > 1 else ""
+                detail_parts = last_line.split("/")
+                year = detail_parts[0].strip() if len(detail_parts) > 0 else ""
+                country = detail_parts[1].strip() if len(detail_parts) > 1 else ""
+                genre = detail_parts[2].strip() if len(detail_parts) > 2 else ""
 
                 # 图片链接
-                img_link = movie.find('img')['src']
+                img_tag = movie.find("img")
+                pic_link = img_tag.get("src") if img_tag else ""
 
-                # 详情页链接
-                detail_link = movie.find('a')['href']
+                # 写入到 TXT 文件
+                out.write(f"{title}\t{rating}\t{comment_num}\t{director}\t{actor}\t{year}\t{country}\t{genre}\t{pic_link}\n")
+                print(f"[成功] 写入：{title}")
 
-                # 信息提取：导演、主演
-                p_tags = movie.find('div', class_='bd').find_all('p')
-
-                # 安全地获取 info_line_1 和 info_line_2
-                info_line_1 = p_tags[0].get_text(strip=True) if len(p_tags) > 0 else ""
-                info_line_2 = p_tags[1].get_text(strip=True) if len(p_tags) > 1 else ""
-
-                # 提取导演和主演
-                director = ""
-                actor = ""
-                match_director = re.search(r"导演: ([^\\/]+)", info_line_1)
-                if match_director:
-                    director = match_director.group(1).strip()
-
-                match_actor = re.search(r"主演: (.+)", info_line_1)
-                if match_actor:
-                    actor = match_actor.group(1).strip()
-
-                # 提取上映时间、出品地、剧情类别
-                parts = [x.strip() for x in info_line_2.split("/")]
-                release_year = parts[0] if len(parts) > 0 else ""
-                region = parts[1] if len(parts) > 1 else ""
-                genre = parts[2] if len(parts) > 2 else ""
-
-                # 输出信息
-                print(f"""
-🎬 电影名：{title}
-⭐ 评分：{rating}
-🗣️ 评论人数：{comment_num}
-🎥 导演：{director}
-👤 主演：{actor}
-📅 上映时间：{release_year}
-🌍 出品地：{region}
-📚 剧情类别：{genre}
-🔗 电影链接：{detail_link}
-🖼️ 封面链接：{img_link}
-""")
+            except Exception as e:
+                print(f"[跳过] 某部电影解析失败：{e}")
